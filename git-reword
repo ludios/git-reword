@@ -2,7 +2,8 @@
 # Replaces the message of a commit on the current branch, even while other processes commit in
 # the same working tree.
 #
-# Usage: scripts/git-reword COMMIT < NEW_MESSAGE
+# Usage: git-reword COMMIT < NEW_MESSAGE
+#    or: git reword COMMIT < NEW_MESSAGE  (when git-reword is in a directory on PATH)
 #
 # `git history reword` (an experimental command, in Git 2.56) makes the new commits: COMMIT with
 # the new message, and the commits after it with new parents. It touches neither the working tree
@@ -29,7 +30,7 @@ fail() {
 }
 
 if [[ $# -ne 1 || -t 0 ]]; then
-	echo "Usage: scripts/git-reword COMMIT < NEW_MESSAGE" >&2
+	echo "Usage: git-reword COMMIT < NEW_MESSAGE" >&2
 	exit 2
 fi
 
