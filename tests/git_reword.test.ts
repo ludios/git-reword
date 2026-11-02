@@ -124,9 +124,7 @@ function commit_once(dir: string): string {
 fi`;
 }
 
-/** Whether this git has the experimental `git history` command, which git-reword needs. */
-const has_git_history = spawnSync("git", ["history", "-h"], { env }).status === 0;
-describe("git-reword", { skip: !has_git_history && "this git has no `git history`" }, () => {
+describe("git-reword", () => {
 	test("rewords a commit under others, leaving the index, the working tree and COMMIT_EDITMSG alone", () => {
 		const { dir, oids } = make_repo(["one", "two", "three", "four"]);
 		fs.writeFileSync(path.join(dir, "0.txt"), "staged");
