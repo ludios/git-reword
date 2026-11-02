@@ -132,12 +132,6 @@ Sometimes a program can log or assert to generate interesting observations which
 
 When there are multiple good ways to implement something, especially involving state or the definition of a type: please ask the user. User loves AskUserQuestion, but please explain the problem correctly in the regular session before asking the question.
 
-# Project map
-
-`git-reword` is the tool, a bash script whose header comment documents it. `tests/git_reword.test.ts` tests it.
-
-The tests use `node:test` and `node:assert/strict` instead of `vitest`, so that this repository needs no `package.json` and no `node_modules`. Node strips the types when it runs the tests; nothing checks them.
-
 # Before committing
 
 	shellcheck git-reword
