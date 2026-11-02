@@ -54,7 +54,12 @@ for ((attempt = 1; attempt <= max_attempts; attempt++)); do
 	if [[ -n $others ]]; then
 		fail "$target is also in ${others//$'\n'/, }"
 	fi
-	commits=$({ echo "$target"; git rev-list --ancestry-path "$target..$tip"; } | git cat-file --batch)
+	# COMMIT and the commits after it, in a format that begins each line of a message with four
+	# spaces, so that a line that begins with gpgsig is always a header
+	commits=$(
+		git rev-list --pretty=raw -1 "$target"
+		git rev-list --pretty=raw --ancestry-path "$target..$tip"
+	)
 	if grep -q '^gpgsig' <<< "$commits"; then
 		fail "$target or a commit after it is signed, and git history would drop the signature"
 	fi

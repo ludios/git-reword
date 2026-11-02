@@ -209,6 +209,13 @@ describe("git-reword", () => {
 		});
 	}
 
+	test("does not take a line of a message that begins with gpgsig for a signature", () => {
+		const { dir, oids } = make_repo(["one", "two\n\ngpgsig is a header of a signed commit"]);
+		const result = reword(dir, oids[0], "One\n");
+		assert.deepEqual([result.status, result.stderr], [0, ""]);
+		assert.deepEqual(git(dir, ["log", "--format=%s", "main"]).split("\n"), ["two", "One"]);
+	});
+
 	for (const [when, program, script] of [
 		[
 			"just before git history reword",
