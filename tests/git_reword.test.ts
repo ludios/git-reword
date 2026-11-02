@@ -1,10 +1,11 @@
+import assert from "node:assert/strict";
 import { execFileSync, spawnSync } from "node:child_process";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { afterEach, describe, expect, test } from "vitest";
+import { afterEach, describe, test } from "node:test";
 
-const git_reword = path.join(import.meta.dirname, "../../scripts/git-reword");
+const git_reword = path.join(import.meta.dirname, "../git-reword");
 
 /**
  * The environment for git: none of the GIT_* variables of the process that runs the tests (such as
@@ -125,7 +126,7 @@ fi`;
 
 /** Whether this git has the experimental `git history` command, which git-reword needs. */
 const has_git_history = spawnSync("git", ["history", "-h"], { env }).status === 0;
-describe.skipIf(!has_git_history)("git-reword", () => {
+describe("git-reword", { skip: !has_git_history && "this git has no `git history`" }, () => {
 	test("rewords a commit under others, leaving the index, the working tree and COMMIT_EDITMSG alone", () => {
 		const { dir, oids } = make_repo(["one", "two", "three", "four"]);
 		fs.writeFileSync(path.join(dir, "0.txt"), "staged");
@@ -141,76 +142,76 @@ describe.skipIf(!has_git_history)("git-reword", () => {
 		const state_before = state();
 
 		const result = reword(dir, oids[1], "Two\n\n#123 is fixed.  \n\n\n");
-		expect([result.status, result.stderr]).toEqual([0, ""]);
+		assert.deepEqual([result.status, result.stderr], [0, ""]);
 
 		const copies = git(dir, ["rev-list", "--reverse", "main"]).split("\n");
-		expect(copies.map((oid) => git(dir, ["log", "-1", "--format=%B", oid]))).toEqual([
-			"one",
-			"Two\n\n#123 is fixed.",
-			"three",
-			"four",
-		]);
-		expect(copies[0]).toBe(oids[0]);
+		assert.deepEqual(
+			copies.map((oid) => git(dir, ["log", "-1", "--format=%B", oid])),
+			["one", "Two\n\n#123 is fixed.", "three", "four"],
+		);
+		assert.equal(copies[0], oids[0]);
 		// The copies keep their trees and authors
 		const tree_and_author = (oid) => git(dir, ["log", "-1", "--format=%T %an <%ae> %ad", oid]);
-		expect(copies.map(tree_and_author)).toEqual(oids.map(tree_and_author));
+		assert.deepEqual(copies.map(tree_and_author), oids.map(tree_and_author));
 		const short = (oid) => git(dir, ["rev-parse", "--short", oid]);
-		expect(result.stdout).toBe(
+		assert.equal(
+			result.stdout,
 			`${short(oids[3])} -> ${short(copies[3])} four\n` +
 				`${short(oids[2])} -> ${short(copies[2])} three\n` +
 				`${short(oids[1])} -> ${short(copies[1])} Two\n`,
 		);
-		expect(state()).toEqual(state_before);
+		assert.deepEqual(state(), state_before);
 	});
 
 	test("rewords the commit at the tip of the branch", () => {
 		const { dir, oids } = make_repo(["one", "two"]);
 		const result = reword(dir, oids[1], "Two\n");
-		expect([result.status, result.stderr]).toEqual([0, ""]);
-		expect(git(dir, ["log", "--format=%s", "main"]).split("\n")).toEqual(["Two", "one"]);
+		assert.deepEqual([result.status, result.stderr], [0, ""]);
+		assert.deepEqual(git(dir, ["log", "--format=%s", "main"]).split("\n"), ["Two", "one"]);
 	});
 
-	test.each([
+	for (const [reason, ref] of [
 		["another branch contains it", "refs/heads/side"],
 		["a remote-tracking branch contains it", "refs/remotes/origin/main"],
 		["a tag contains it", "refs/tags/v1"],
 		["it is not on the branch", null],
 		["a commit after it is signed", null],
-	])("refuses a commit when %s", (reason, ref) => {
-		const { dir, oids } = make_repo(["one", "two"]);
-		let target = oids[0];
-		let error = "";
-		if (ref !== null) {
-			git(dir, ["update-ref", ref, target]);
-			error = `${target} is also in ${ref}`;
-		} else if (reason === "it is not on the branch") {
-			target = git(dir, ["commit-tree", "-p", oids[0], "-m", "elsewhere", `${oids[0]}^{tree}`]);
-			error = `${target} is not on refs/heads/main`;
-		} else {
-			const signed = git(dir, ["cat-file", "commit", oids[1]]).replace(
-				/^(committer .*)$/m,
-				"$1\ngpgsig -----BEGIN PGP SIGNATURE-----\n -----END PGP SIGNATURE-----",
+	]) {
+		test(`refuses a commit when ${reason}`, () => {
+			const { dir, oids } = make_repo(["one", "two"]);
+			let target = oids[0];
+			let error = "";
+			if (ref !== null) {
+				git(dir, ["update-ref", ref, target]);
+				error = `${target} is also in ${ref}`;
+			} else if (reason === "it is not on the branch") {
+				target = git(dir, ["commit-tree", "-p", oids[0], "-m", "elsewhere", `${oids[0]}^{tree}`]);
+				error = `${target} is not on refs/heads/main`;
+			} else {
+				const signed = git(dir, ["cat-file", "commit", oids[1]]).replace(
+					/^(committer .*)$/m,
+					"$1\ngpgsig -----BEGIN PGP SIGNATURE-----\n -----END PGP SIGNATURE-----",
+				);
+				const oid = execFileSync("git", ["hash-object", "-t", "commit", "-w", "--stdin"], {
+					cwd: dir,
+					env,
+					input: signed + "\n",
+					encoding: "utf8",
+				}).trim();
+				git(dir, ["update-ref", "refs/heads/main", oid]);
+				error = `${target} or a commit after it is signed, and git history would drop the signature`;
+			}
+			const main_before = git(dir, ["rev-parse", "main"]);
+
+			const result = reword(dir, target, "New\n");
+			assert.deepEqual(
+				[result.status, result.stderr, git(dir, ["rev-parse", "main"])],
+				[1, `git-reword: ${error}\n`, main_before],
 			);
-			const oid = execFileSync("git", ["hash-object", "-t", "commit", "-w", "--stdin"], {
-				cwd: dir,
-				env,
-				input: signed + "\n",
-				encoding: "utf8",
-			}).trim();
-			git(dir, ["update-ref", "refs/heads/main", oid]);
-			error = `${target} or a commit after it is signed, and git history would drop the signature`;
-		}
-		const main_before = git(dir, ["rev-parse", "main"]);
+		});
+	}
 
-		const result = reword(dir, target, "New\n");
-		expect([result.status, result.stderr, git(dir, ["rev-parse", "main"])]).toEqual([
-			1,
-			`git-reword: ${error}\n`,
-			main_before,
-		]);
-	});
-
-	test.each([
+	for (const [when, program, script] of [
 		[
 			"just before git history reword",
 			"git",
@@ -222,19 +223,25 @@ describe.skipIf(!has_git_history)("git-reword", () => {
 			'if [ "$1" = update-ref ]; then\n%s\nfi\nexec "$REAL" "$@"',
 		],
 		["while git history reads the new message", "cp", '"$REAL" "$@"\n%s'],
-	])("begins again, and loses no commit, when the branch moves %s", (_, program, script) => {
-		const { dir, oids } = make_repo(["one", "two"]);
-		const fake = fake_program(program, script.replace("%s", commit_once(dir)));
-		const result = reword(dir, oids[0], "One\n", { PATH: fake.PATH });
-		expect([result.status, result.stderr, fs.existsSync(fake.once)]).toEqual([0, "", true]);
-		expect(git(dir, ["log", "--format=%s", "main"]).split("\n")).toEqual(["raced", "two", "One"]);
-	});
+	]) {
+		test(`begins again, and loses no commit, when the branch moves ${when}`, () => {
+			const { dir, oids } = make_repo(["one", "two"]);
+			const fake = fake_program(program, script.replace("%s", commit_once(dir)));
+			const result = reword(dir, oids[0], "One\n", { PATH: fake.PATH });
+			assert.deepEqual([result.status, result.stderr, fs.existsSync(fake.once)], [0, "", true]);
+			assert.deepEqual(git(dir, ["log", "--format=%s", "main"]).split("\n"), [
+				"raced",
+				"two",
+				"One",
+			]);
+		});
+	}
 
 	test("ignores a COMMIT_EDITMSG that a concurrent git commit writes", () => {
 		const { dir, oids } = make_repo(["one", "two"]);
 		const fake = fake_program("cp", `"$REAL" "$@"\necho theirs > "${dir}/.git/COMMIT_EDITMSG"`);
 		const result = reword(dir, oids[0], "One\n", { PATH: fake.PATH });
-		expect([result.status, result.stderr]).toEqual([0, ""]);
-		expect(git(dir, ["log", "--format=%s", "main"]).split("\n")).toEqual(["two", "One"]);
+		assert.deepEqual([result.status, result.stderr], [0, ""]);
+		assert.deepEqual(git(dir, ["log", "--format=%s", "main"]).split("\n"), ["two", "One"]);
 	});
 });
